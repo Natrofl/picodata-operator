@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- picodata_v1_picoclusterdb.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
