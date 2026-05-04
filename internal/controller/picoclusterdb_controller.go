@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,6 +50,7 @@ type PicoclusterDBReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
 func (r *PicoclusterDBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -75,11 +77,25 @@ func (r *PicoclusterDBReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, fmt.Errorf("tier %s: %w", tier.Name, err)
 		}
 
-		// Collect tier status from the StatefulSet.
+		// Collect tier status from the StatefulSets.
 		ts, ready, err := r.tierStatus(ctx, cluster, tier)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+
+		// Reconcile plugins only when all pods are ready and tier has plugins declared.
+		if ready && len(tier.Plugins) > 0 {
+			pluginStatuses, err := r.reconcileTierPlugins(ctx, cluster, tier)
+			if err != nil {
+				log.Error(err, "Plugin reconcile failed, will retry", "tier", tier.Name)
+				if statusErr := r.updateStatus(ctx, cluster, tierStatuses, false); statusErr != nil {
+					log.Error(statusErr, "Failed to update status")
+				}
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+			}
+			ts.Plugins = pluginStatuses
+		}
+
 		tierStatuses = append(tierStatuses, ts)
 		if !ready {
 			allReady = false

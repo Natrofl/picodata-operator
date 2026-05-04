@@ -5,9 +5,9 @@ metadata:
   namespace: picodata
 spec:
   image:
-    repository: docker.binary.picodata.io
-    tag: "picodata:26.1.2"
-    pullPolicy: IfNotPresent
+    repository: git.picodata.io:5000/picodata/plugin/radix
+    tag: "radix-1.0.0:latest"
+    pullPolicy: Never
 
   clusterName: picodata-sample
 
@@ -17,39 +17,11 @@ spec:
 
   cluster:
     defaultReplicationFactor: 1
-    defaultBucketCount: 3000
-
-  # Overrides for the default Kubernetes probes.
-  # By default the operator uses /api/v1/health/{startup,live,ready} HTTP endpoints.
-  # Uncomment and adjust if you need different timings or a custom probe handler.
-  #
-  # startupProbe:
-  #   httpGet:
-  #     path: /api/v1/health/startup
-  #     port: 8081
-  #   periodSeconds: 30
-  #   failureThreshold: 20
-  #   timeoutSeconds: 3
-  #
-  # livenessProbe:
-  #   httpGet:
-  #     path: /api/v1/health/live
-  #     port: 8081
-  #   periodSeconds: 20
-  #   failureThreshold: 3
-  #   timeoutSeconds: 3
-  #
-  # readinessProbe:
-  #   httpGet:
-  #     path: /api/v1/health/ready
-  #     port: 8081
-  #   periodSeconds: 20
-  #   failureThreshold: 3
-  #   timeoutSeconds: 3
+    defaultBucketCount: 16384
 
   tiers:
     # Тир-арбитр: участвует в raft-голосовании, не хранит пользовательские данные.
-    # 2 реплики, replicationFactor=1 (каждая реплика — отдельный репликасет).
+    # 2 репликасета, RF=1 → 2 пода.
     - name: arbiter
       replicas: 2
       replicationFactor: 1
@@ -74,16 +46,42 @@ spec:
           cpu: "200m"
           memory: "256Mi"
 
-    # Основной тир: хранит данные, replicationFactor=2 (каждый репликасет — 2 инстанса).
-    # 2 репликасета × RF=2 = 4 пода.
+    # Основной тир с плагином Radix.
+    # 2 репликасета, RF=2 → 4 пода.
+    # shareDir указывает на директорию внутри образа, где находится .so плагина.
     - name: default
       replicas: 2
       replicationFactor: 3
       canVote: false
+      shareDir: /usr/share/picodata
+      plugins:
+        - name: radix
+          version: "1.0.0"
+          migrationContext:
+            tier_for_db_0: "default"
+            tier_for_db_1: "default"
+            tier_for_db_2: "default"
+            tier_for_db_3: "default"
+            tier_for_db_4: "default"
+            tier_for_db_5: "default"
+            tier_for_db_6: "default"
+            tier_for_db_7: "default"
+            tier_for_db_8: "default"
+            tier_for_db_9: "default"
+            tier_for_db_10: "default"
+            tier_for_db_11: "default"
+            tier_for_db_12: "default"
+            tier_for_db_13: "default"
+            tier_for_db_14: "default"
+            tier_for_db_15: "default"
+            unlogged: ""
+          services:
+            - name: radix
+              listenerPort: 8082
       storage:
         size: 2Gi
       memtx:
-        memory: "128M"
+        memory: "256M"
       vinyl:
         memory: "64M"
         cache: "32M"

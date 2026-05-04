@@ -106,6 +106,16 @@ func buildConfigMap(cluster *picodatav1.PicoclusterDB, tier *picodatav1.TierSpec
 
 	pgTLS := tier.Pg.SSL
 
+	// share_dir must be set on every tier: CREATE PLUGIN is cluster-wide DDL and each
+	// instance reads this path. Default is /usr/share/picodata (present in all official images).
+	shareDir := tier.ShareDir
+	if shareDir == "" {
+		shareDir = "/usr/share/picodata"
+	}
+	shareDirLine := fmt.Sprintf("  share_dir: %s\n", shareDir)
+
+	pluginSection := buildPluginListenerConfig(tier)
+
 	// New-style config: iproto / http / pgproto sections.
 	// iproto.listen and iproto.advertise are overridden by env vars
 	// PICODATA_IPROTO_LISTEN / PICODATA_IPROTO_ADVERTISE set in the StatefulSet,
@@ -119,7 +129,7 @@ func buildConfigMap(cluster *picodatav1.PicoclusterDB, tier *picodatav1.TierSpec
 %sinstance:
   instance_dir: %s
   tier: %s
-  peer:
+%s  peer:
   - %s
   admin_socket: %s/admin.sock
   log:
@@ -140,7 +150,7 @@ func buildConfigMap(cluster *picodatav1.PicoclusterDB, tier *picodatav1.TierSpec
     listen: %s
     tls:
       enabled: %v
-`,
+%s`,
 		cluster.Spec.ClusterName,
 		defaultRepl,
 		defaultBuckets,
@@ -148,6 +158,7 @@ func buildConfigMap(cluster *picodatav1.PicoclusterDB, tier *picodatav1.TierSpec
 		tiersYAML,
 		instanceDir,
 		tier.Name,
+		shareDirLine,
 		peerFQDN,
 		instanceDir,
 		logLevel,
@@ -161,6 +172,7 @@ func buildConfigMap(cluster *picodatav1.PicoclusterDB, tier *picodatav1.TierSpec
 		tier.Pg.Enabled,
 		pgListen,
 		pgTLS,
+		pluginSection,
 	)
 
 	return &corev1.ConfigMap{
@@ -179,4 +191,54 @@ func servicePort(v, defaultV int32) int32 {
 		return defaultV
 	}
 	return v
+}
+
+// buildPluginListenerConfig generates the instance.plugin section for all plugins
+// in a tier that declare services with a ListenerPort.
+//
+// Example output:
+//
+//	plugin:
+//	  radix:
+//	    service:
+//	      radix:
+//	        listener:
+//	          enabled: true
+//	          listen: "0.0.0.0:8082"
+func buildPluginListenerConfig(tier *picodatav1.TierSpec) string {
+	// Collect plugins that have at least one service with a port.
+	type svcEntry struct {
+		name string
+		port int32
+	}
+	type pluginEntry struct {
+		name     string
+		services []svcEntry
+	}
+
+	var plugins []pluginEntry
+	for _, p := range tier.Plugins {
+		var svcs []svcEntry
+		for _, s := range p.Services {
+			if s.ListenerPort > 0 {
+				svcs = append(svcs, svcEntry{name: s.Name, port: s.ListenerPort})
+			}
+		}
+		if len(svcs) > 0 {
+			plugins = append(plugins, pluginEntry{name: p.Name, services: svcs})
+		}
+	}
+	if len(plugins) == 0 {
+		return ""
+	}
+
+	out := "  plugin:\n"
+	for _, p := range plugins {
+		out += fmt.Sprintf("    %s:\n      service:\n", p.name)
+		for _, s := range p.services {
+			out += fmt.Sprintf("        %s:\n          listener:\n            enabled: true\n            listen: \"0.0.0.0:%d\"\n",
+				s.name, s.port)
+		}
+	}
+	return out
 }

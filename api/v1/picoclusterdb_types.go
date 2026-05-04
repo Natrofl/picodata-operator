@@ -182,6 +182,15 @@ type TierSpec struct {
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
+	// ShareDir is the path inside the container where Picodata looks for plugin binaries.
+	// Required when Plugins is non-empty. Maps to instance.share_dir in config.yaml.
+	// +optional
+	ShareDir string `json:"shareDir,omitempty"`
+
+	// Plugins lists Picodata plugins to install and enable on this tier.
+	// +optional
+	Plugins []PluginSpec `json:"plugins,omitempty"`
+
 	// Env defines extra environment variables injected into each pod.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
@@ -323,6 +332,52 @@ const (
 	ClusterPhaseUnknown      ClusterPhase = "Unknown"
 )
 
+// PluginSpec describes a Picodata plugin to install on a tier.
+type PluginSpec struct {
+	// Name is the plugin name as registered in Picodata.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Version is the plugin version, e.g. "1.0.0".
+	// +kubebuilder:validation:MinLength=1
+	Version string `json:"version"`
+
+	// MigrationContext holds key-value pairs passed to the plugin before migration runs.
+	// Each entry becomes: ALTER PLUGIN <name> <version> SET migration_context.<key>='<value>'
+	// +optional
+	MigrationContext map[string]string `json:"migrationContext,omitempty"`
+
+	// Services lists plugin services that expose a network listener.
+	// Each service generates a listener config in config.yaml and a port in the tier Service.
+	// +optional
+	Services []PluginServiceSpec `json:"services,omitempty"`
+}
+
+// PluginServiceSpec configures a single plugin service listener.
+type PluginServiceSpec struct {
+	// Name is the service name as defined in the plugin manifest.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// ListenerPort is the port this service listens on inside the container.
+	// Added to the tier's ClusterIP Service.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	ListenerPort int32 `json:"listenerPort"`
+}
+
+// PluginStatus reflects the observed state of a plugin on a tier.
+type PluginStatus struct {
+	// Name of the plugin.
+	Name string `json:"name"`
+
+	// Version currently installed and active.
+	Version string `json:"version"`
+
+	// Enabled is true when the plugin is enabled in Picodata.
+	Enabled bool `json:"enabled"`
+}
+
 // TierStatus holds the observed state of a single tier.
 type TierStatus struct {
 	// Name of the tier.
@@ -333,6 +388,10 @@ type TierStatus struct {
 
 	// DesiredReplicas is the number of pods requested in the spec.
 	DesiredReplicas int32 `json:"desiredReplicas"`
+
+	// Plugins reflects the observed state of plugins on this tier.
+	// +optional
+	Plugins []PluginStatus `json:"plugins,omitempty"`
 }
 
 // Condition type constants used in status.

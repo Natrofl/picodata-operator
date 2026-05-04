@@ -108,6 +108,10 @@ func buildStatefulSet(
 				tier.Name, cluster.Name, binaryPort),
 		},
 		{
+			Name:  "PICODATA_PG_LISTEN",
+			Value: fmt.Sprintf("0.0.0.0:%d", pgPort),
+		},
+		{
 			Name: "PICODATA_PG_ADVERTISE",
 			Value: fmt.Sprintf("$(INSTANCE_NAME).%s-%s-interconnect.$(INSTANCE_NAMESPACE).svc.cluster.local:%d",
 				tier.Name, cluster.Name, pgPort),
@@ -149,6 +153,15 @@ func buildStatefulSet(
 		{Name: "binary", ContainerPort: binaryPort, Protocol: corev1.ProtocolTCP},
 		{Name: "http", ContainerPort: httpPort, Protocol: corev1.ProtocolTCP},
 		{Name: "pg", ContainerPort: pgPort, Protocol: corev1.ProtocolTCP},
+	}
+	for _, plugin := range tier.Plugins {
+		for _, svc := range plugin.Services {
+			ports = append(ports, corev1.ContainerPort{
+				Name:          fmt.Sprintf("%s-%s", plugin.Name, svc.Name),
+				ContainerPort: svc.ListenerPort,
+				Protocol:      corev1.ProtocolTCP,
+			})
+		}
 	}
 
 	// Volume mounts.

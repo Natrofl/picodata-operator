@@ -106,6 +106,37 @@ func buildClientService(cluster *picodatav1.PicoclusterDB, tier *picodatav1.Tier
 		svcType = corev1.ServiceTypeClusterIP
 	}
 
+	ports := []corev1.ServicePort{
+		{
+			Name:       "binary",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       binaryPort,
+			TargetPort: intstr.FromInt32(binaryPort),
+		},
+		{
+			Name:       "http",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       httpPort,
+			TargetPort: intstr.FromInt32(httpPort),
+		},
+		{
+			Name:       "pg",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       pgPort,
+			TargetPort: intstr.FromInt32(pgPort),
+		},
+	}
+	for _, plugin := range tier.Plugins {
+		for _, svc := range plugin.Services {
+			ports = append(ports, corev1.ServicePort{
+				Name:       fmt.Sprintf("%s-%s", plugin.Name, svc.Name),
+				Protocol:   corev1.ProtocolTCP,
+				Port:       svc.ListenerPort,
+				TargetPort: intstr.FromInt32(svc.ListenerPort),
+			})
+		}
+	}
+
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clientServiceName(cluster, tier),
@@ -115,26 +146,7 @@ func buildClientService(cluster *picodatav1.PicoclusterDB, tier *picodatav1.Tier
 		Spec: corev1.ServiceSpec{
 			Type:     svcType,
 			Selector: tierLabels(cluster, tier),
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "binary",
-					Protocol:   corev1.ProtocolTCP,
-					Port:       binaryPort,
-					TargetPort: intstr.FromInt32(binaryPort),
-				},
-				{
-					Name:       "http",
-					Protocol:   corev1.ProtocolTCP,
-					Port:       httpPort,
-					TargetPort: intstr.FromInt32(httpPort),
-				},
-				{
-					Name:       "pg",
-					Protocol:   corev1.ProtocolTCP,
-					Port:       pgPort,
-					TargetPort: intstr.FromInt32(pgPort),
-				},
-			},
+			Ports:    ports,
 		},
 	}
 }

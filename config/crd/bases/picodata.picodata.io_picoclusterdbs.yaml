@@ -1748,6 +1748,60 @@ spec:
                           description: SSL enables TLS for pgproto connections.
                           type: boolean
                       type: object
+                    plugins:
+                      description: Plugins lists Picodata plugins to install and enable
+                        on this tier.
+                      items:
+                        description: PluginSpec describes a Picodata plugin to install
+                          on a tier.
+                        properties:
+                          migrationContext:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              MigrationContext holds key-value pairs passed to the plugin before migration runs.
+                              Each entry becomes: ALTER PLUGIN <name> <version> SET migration_context.<key>='<value>'
+                            type: object
+                          name:
+                            description: Name is the plugin name as registered in
+                              Picodata.
+                            minLength: 1
+                            type: string
+                          services:
+                            description: |-
+                              Services lists plugin services that expose a network listener.
+                              Each service generates a listener config in config.yaml and a port in the tier Service.
+                            items:
+                              description: PluginServiceSpec configures a single plugin
+                                service listener.
+                              properties:
+                                listenerPort:
+                                  description: |-
+                                    ListenerPort is the port this service listens on inside the container.
+                                    Added to the tier's ClusterIP Service.
+                                  format: int32
+                                  maximum: 65535
+                                  minimum: 1
+                                  type: integer
+                                name:
+                                  description: Name is the service name as defined
+                                    in the plugin manifest.
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - listenerPort
+                              - name
+                              type: object
+                            type: array
+                          version:
+                            description: Version is the plugin version, e.g. "1.0.0".
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        - version
+                        type: object
+                      type: array
                     replicas:
                       default: 1
                       description: |-
@@ -1823,6 +1877,11 @@ spec:
                             More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                           type: object
                       type: object
+                    shareDir:
+                      description: |-
+                        ShareDir is the path inside the container where Picodata looks for plugin binaries.
+                        Required when Plugins is non-empty. Maps to instance.share_dir in config.yaml.
+                      type: string
                     storage:
                       description: Storage configuration for the PersistentVolumeClaim
                         attached to each instance.
@@ -2168,6 +2227,29 @@ spec:
                     name:
                       description: Name of the tier.
                       type: string
+                    plugins:
+                      description: Plugins reflects the observed state of plugins
+                        on this tier.
+                      items:
+                        description: PluginStatus reflects the observed state of a
+                          plugin on a tier.
+                        properties:
+                          enabled:
+                            description: Enabled is true when the plugin is enabled
+                              in Picodata.
+                            type: boolean
+                          name:
+                            description: Name of the plugin.
+                            type: string
+                          version:
+                            description: Version currently installed and active.
+                            type: string
+                        required:
+                        - enabled
+                        - name
+                        - version
+                        type: object
+                      type: array
                     readyReplicas:
                       description: ReadyReplicas is the number of pods in Ready state.
                       format: int32

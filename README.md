@@ -40,15 +40,27 @@ kubectl create secret generic picodata-admin-secret \
   --from-literal=password=T0psecret
 ```
 
-### 4. Запустить оператор локально
-
-Оператор запускается на хосте и подключается к кластеру через `~/.kube/config`:
+### 4. Собрать образ оператора и задеплоить в minikube
 
 ```sh
-make run
+make docker-build IMG=picodata-operator:dev
+minikube image load picodata-operator:dev
+make deploy IMG=picodata-operator:dev
 ```
 
-Оставить терминал открытым (или запустить в фоне). Логи оператора идут в stdout.
+Проверить что оператор запустился:
+
+```sh
+kubectl get pods -n picodata-operator-system
+kubectl logs -n picodata-operator-system deploy/picodata-operator-controller-manager -f
+```
+
+> **Для разработки** можно запустить оператор локально без сборки образа:
+> ```sh
+> make run
+> ```
+> В этом режиме reconcile плагинов не работает — оператор не может подключиться
+> к `svc.cluster.local` DNS снаружи кластера.
 
 ### 5. Применить sample-кластер
 
@@ -126,6 +138,57 @@ ownerReference. PVC удаляются вместе с подами.
 
 ---
 
+## Развёртывание с плагином (пример: Radix)
+
+Radix — реализация Redis-протокола на базе Picodata.
+
+### 1. Загрузить образ с плагином в minikube
+
+```sh
+minikube image load <образ-с-radix>
+```
+
+### 2. Применить sample с плагином
+
+```sh
+kubectl apply -f config/samples/picodata_v1_picoclusterdb_plugin.yaml
+```
+
+Sample разворачивает:
+- `arbiter` — 2 репликасета, RF=1, участвует в raft
+- `default` — 2 репликасета, RF=2, плагин Radix 1.0.0 на порту 8082
+
+Оператор автоматически установит плагин после того как все поды тира `default`
+будут готовы: `CREATE PLUGIN` → `SET migration_context` → `MIGRATE` → `ADD SERVICE TO TIER` → `ENABLE`.
+
+Статус плагина можно отследить:
+
+```sh
+kubectl get picoclusterdb picodata-sample -n picodata -o jsonpath='{.status.tiers[1].plugins}'
+```
+
+### 3. Подключиться к Radix
+
+```sh
+kubectl port-forward -n picodata pod/default-picodata-sample-1-0 18082:8082
+redis-cli -p 18082 ping
+redis-cli -p 18082 set foo bar
+redis-cli -p 18082 get foo
+```
+
+### Обновление образа оператора
+
+При изменении кода оператора:
+
+```sh
+make docker-build IMG=picodata-operator:dev
+minikube image load picodata-operator:dev
+make deploy IMG=picodata-operator:dev
+kubectl rollout restart deploy/picodata-operator-controller-manager -n picodata-operator-system
+```
+
+---
+
 ## Разработка
 
 ```sh
@@ -142,6 +205,7 @@ make test
 ## Документация
 
 - [ADR-001: CRD PicoclusterDB](docs/adr/2026-04-14-picoclusterdb-crd.md)
+- [ADR-002: Управление плагинами](docs/adr/2026-05-04-plugin-management.md)
 
 ## License
 
