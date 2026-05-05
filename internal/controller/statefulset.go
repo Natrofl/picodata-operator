@@ -19,8 +19,10 @@ package controller
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,9 +32,12 @@ import (
 )
 
 const (
-	dataVolumeName   = "picodata"
-	configVolumeName = "pico-conf"
-	configMountPath  = instanceDir + "/config.yaml"
+	dataVolumeName     = "picodata"
+	configVolumeName   = "pico-conf"
+	configOutVolumeName = "pico-conf-out"
+	configOutDir       = "/pico-conf-out"
+	configMountPath    = instanceDir + "/config.yaml"
+	configTemplatePath = "/etc/picodata-tpl/config.yaml"
 )
 
 // statefulSetName returns the name of the StatefulSet for a specific replicaset.
@@ -108,6 +113,15 @@ func buildStatefulSet(
 				tier.Name, cluster.Name, binaryPort),
 		},
 		{
+			Name:  "PICODATA_HTTP_LISTEN",
+			Value: fmt.Sprintf("0.0.0.0:%d", httpPort),
+		},
+		{
+			Name: "PICODATA_HTTP_ADVERTISE",
+			Value: fmt.Sprintf("$(INSTANCE_NAME).%s-%s-interconnect.$(INSTANCE_NAMESPACE).svc.cluster.local:%d",
+				tier.Name, cluster.Name, httpPort),
+		},
+		{
 			Name:  "PICODATA_PG_LISTEN",
 			Value: fmt.Sprintf("0.0.0.0:%d", pgPort),
 		},
@@ -148,6 +162,7 @@ func buildStatefulSet(
 	// Append user-defined extra env vars.
 	env = append(env, tier.Env...)
 
+
 	// Container ports.
 	ports := []corev1.ContainerPort{
 		{Name: "binary", ContainerPort: binaryPort, Protocol: corev1.ProtocolTCP},
@@ -164,10 +179,10 @@ func buildStatefulSet(
 		}
 	}
 
-	// Volume mounts.
+	// Volume mounts — init container writes processed config to emptyDir; main container reads it.
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:      configVolumeName,
+			Name:      configOutVolumeName,
 			MountPath: configMountPath,
 			SubPath:   "config.yaml",
 		},
@@ -205,8 +220,19 @@ func buildStatefulSet(
 		container.ReadinessProbe = defaultReadinessProbe(httpPort)
 	}
 
+	// Ensure the PVC is writable by the picodata process (UID/GID 1000).
+	podSecCtx := tier.SecurityContext
+	if podSecCtx == nil {
+		podSecCtx = &corev1.PodSecurityContext{}
+	}
+	if podSecCtx.FSGroup == nil {
+		podSecCtx.FSGroup = ptr(int64(1000))
+	}
+
 	// Pod spec.
 	podSpec := corev1.PodSpec{
+		SecurityContext:               podSecCtx,
+		InitContainers:                []corev1.Container{buildConfigInitContainer(cluster, tier, image, pullPolicy)},
 		Containers:                    []corev1.Container{container},
 		ImagePullSecrets:              cluster.Spec.ImagePullSecrets,
 		Affinity:                      tier.Affinity,
@@ -226,6 +252,12 @@ func buildStatefulSet(
 							{Key: "config.yaml", Path: "config.yaml"},
 						},
 					},
+				},
+			},
+			{
+				Name: configOutVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
 			},
 		},
@@ -344,6 +376,65 @@ func defaultReadinessProbe(httpPort int32) *corev1.Probe {
 // -----------------------------------------------------------------------
 
 func ptr[T any](v T) *T { return &v }
+
+// buildConfigInitContainer returns an init container that generates the per-pod config.yaml
+// by substituting plugin listener advertise placeholders with the pod's actual FQDN.
+// The ConfigMap is mounted as a read-only template; the final config is written to the PVC.
+func buildConfigInitContainer(cluster *picodatav1.PicoclusterDB, tier *picodatav1.TierSpec, image string, pullPolicy corev1.PullPolicy) corev1.Container {
+	var sedExprs []string
+	for _, plugin := range tier.Plugins {
+		for _, svc := range plugin.Services {
+			if svc.ListenerPort <= 0 {
+				continue
+			}
+			placeholder := fmt.Sprintf("__PLUGIN_ADVERTISE_%s_%s__",
+				strings.ToUpper(plugin.Name), strings.ToUpper(svc.Name))
+			sedExprs = append(sedExprs, fmt.Sprintf(
+				`-e "s|%s|$INSTANCE_NAME.%s-%s-interconnect.$INSTANCE_NAMESPACE.svc.cluster.local:%d|g"`,
+				placeholder, tier.Name, cluster.Name, svc.ListenerPort))
+		}
+	}
+
+	var script string
+	if len(sedExprs) > 0 {
+		script = fmt.Sprintf("sed %s %s > %s/config.yaml", strings.Join(sedExprs, " "), configTemplatePath, configOutDir)
+	} else {
+		script = fmt.Sprintf("cp %s %s/config.yaml", configTemplatePath, configOutDir)
+	}
+
+	return corev1.Container{
+		Name:            "config-init",
+		Image:           image,
+		ImagePullPolicy: pullPolicy,
+		Command:         []string{"/bin/sh", "-c"},
+		Args:            []string{script},
+		Env: []corev1.EnvVar{
+			{
+				Name: "INSTANCE_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+				},
+			},
+			{
+				Name: "INSTANCE_NAMESPACE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+				},
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      configVolumeName,
+				MountPath: configTemplatePath,
+				SubPath:   "config.yaml",
+			},
+			{
+				Name:      configOutVolumeName,
+				MountPath: configOutDir,
+			},
+		},
+	}
+}
 
 func intstrFromInt32(v int32) intstr.IntOrString {
 	return intstr.FromInt32(v)

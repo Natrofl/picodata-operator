@@ -1,13 +1,16 @@
 apiVersion: picodata.picodata.io/v1
 kind: PicoclusterDB
 metadata:
-  name: picodata-sample
+  name: picodata-flot
   namespace: picodata
 spec:
   image:
     repository: docker-public.binary.picodata.io
-    tag: "radix-1.0.0:latest"
-    pullPolicy: Never
+    tag: "radix:1.0.0"
+    pullPolicy: IfNotPresent
+
+  imagePullSecrets:
+    - name: picodata-registry
 
   clusterName: picodata-sample
 
@@ -23,13 +26,15 @@ spec:
     # Тир-арбитр: участвует в raft-голосовании, не хранит пользовательские данные.
     # 2 репликасета, RF=1 → 2 пода.
     - name: arbiter
-      replicas: 2
+      replicas: 3
       replicationFactor: 1
       canVote: true
+      securityContext:
+        fsGroup: 1000
       storage:
         size: 1Gi
       memtx:
-        memory: "256M"
+        memory: "1G"
       pg:
         enabled: false
       log:
@@ -38,14 +43,16 @@ spec:
       resources:
         requests:
           cpu: "1000m"
-          memory: "256Mi"
+          memory: "1Gi"
 
     # Основной тир с плагином Radix.
     # 2 репликасета, RF=2 → 4 пода.
     # shareDir указывает на директорию внутри образа, где находится .so плагина.
     - name: default
-      replicas: 2
-      replicationFactor: 2
+      replicas: 3
+      replicationFactor: 3
+      securityContext:
+        fsGroup: 1000
       canVote: false
       shareDir: /usr/share/picodata
       plugins:
@@ -68,14 +75,14 @@ spec:
             tier_for_db_13: "default"
             tier_for_db_14: "default"
             tier_for_db_15: "default"
-            unlogged: ""
+            unlogged: "UNLOGGED"
           services:
             - name: radix
               listenerPort: 8082
       storage:
         size: 2Gi
       memtx:
-        memory: "512M"
+        memory: "1G"
       pg:
         enabled: true
         ssl: false
@@ -85,4 +92,4 @@ spec:
       resources:
         requests:
           cpu: "1000m"
-          memory: "512Mi"
+          memory: "1Gi"

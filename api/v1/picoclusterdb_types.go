@@ -210,6 +210,11 @@ type TierSpec struct {
 	// TopologySpreadConstraints for distributing pods across topology domains.
 	// +optional
 	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+
+	// SecurityContext is the pod-level security context applied to all pods in this tier.
+	// Use fsGroup to ensure the PVC is writable by the Picodata process (GID 1000 for official images).
+	// +optional
+	SecurityContext *corev1.PodSecurityContext `json:"securityContext,omitempty"`
 }
 
 // StorageSpec defines persistent storage for a tier.

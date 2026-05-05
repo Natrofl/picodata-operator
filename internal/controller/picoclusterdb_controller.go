@@ -204,9 +204,10 @@ func (r *PicoclusterDBReconciler) reconcileConfigMap(ctx context.Context, desire
 	if err != nil {
 		return err
 	}
+	patch := client.MergeFrom(existing.DeepCopy())
 	existing.Data = desired.Data
 	existing.Labels = desired.Labels
-	return r.Update(ctx, existing)
+	return r.Patch(ctx, existing, patch)
 }
 
 func (r *PicoclusterDBReconciler) reconcileService(ctx context.Context, desired *corev1.Service) error {
@@ -218,11 +219,12 @@ func (r *PicoclusterDBReconciler) reconcileService(ctx context.Context, desired 
 	if err != nil {
 		return err
 	}
-	// Update only ports and labels; preserve ClusterIP (immutable field).
+	// Patch only ports and labels; preserve ClusterIP (immutable field).
+	patch := client.MergeFrom(existing.DeepCopy())
 	existing.Spec.Ports = desired.Spec.Ports
 	existing.Spec.Selector = desired.Spec.Selector
 	existing.Labels = desired.Labels
-	return r.Update(ctx, existing)
+	return r.Patch(ctx, existing, patch)
 }
 
 func (r *PicoclusterDBReconciler) reconcileStatefulSet(ctx context.Context, desired *appsv1.StatefulSet) error {
@@ -234,11 +236,11 @@ func (r *PicoclusterDBReconciler) reconcileStatefulSet(ctx context.Context, desi
 	if err != nil {
 		return err
 	}
-	// Update mutable fields: replicas, pod template (image, env, resources, probes, annotations).
+	patch := client.MergeFrom(existing.DeepCopy())
 	existing.Spec.Replicas = desired.Spec.Replicas
 	existing.Spec.Template = desired.Spec.Template
 	existing.Labels = desired.Labels
-	return r.Update(ctx, existing)
+	return r.Patch(ctx, existing, patch)
 }
 
 // -----------------------------------------------------------------------

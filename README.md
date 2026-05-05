@@ -3,6 +3,13 @@
 Kubernetes-оператор для управления кластером [Picodata](https://picodata.io) — распределённой СУБД
 на базе Tarantool. Оператор реализует reconcile-loop на основе CRD `PicoclusterDB`.
 
+## Совместимость
+
+| Компонент  | Версия     |
+|------------|------------|
+| Picodata   | 26.1       |
+| Kubernetes | 1.30+      |
+
 ## Быстрый старт в minikube
 
 ### Требования
@@ -185,6 +192,153 @@ make docker-build IMG=picodata-operator:dev
 minikube image load picodata-operator:dev
 make deploy IMG=picodata-operator:dev
 kubectl rollout restart deploy/picodata-operator-controller-manager -n picodata-operator-system
+```
+
+---
+
+## Публикация образа оператора
+
+### Сборка и push в реестр
+
+```sh
+make docker-build docker-push IMG=registry.example.com/picodata-operator:v0.1.0
+```
+
+Или раздельно:
+
+```sh
+make docker-build IMG=registry.example.com/picodata-operator:v0.1.0
+make docker-push  IMG=registry.example.com/picodata-operator:v0.1.0
+```
+
+Если реестр требует авторизации:
+
+```sh
+docker login registry.example.com
+```
+
+---
+
+## Развёртывание в production-кластере
+
+### Требования
+
+- kubectl с доступом к кластеру
+- Права на создание CRD, ClusterRole, Namespace
+
+### 1. Установить CRD и RBAC
+
+```sh
+make install IMG=registry.example.com/picodata-operator:v0.1.0
+```
+
+Или без make, напрямую:
+
+```sh
+kubectl apply -f config/crd/bases/
+```
+
+### 2. Развернуть оператор
+
+```sh
+make deploy IMG=registry.example.com/picodata-operator:v0.1.0
+```
+
+Если реестр требует pull secret — создайте его в namespace оператора:
+
+```sh
+kubectl create secret docker-registry regcred \
+  --docker-server=registry.example.com \
+  --docker-username=<user> \
+  --docker-password=<password> \
+  -n picodata-operator-system
+```
+
+Затем добавьте в `config/manager/manager.yaml` в `spec.template.spec`:
+
+```yaml
+imagePullSecrets:
+  - name: regcred
+```
+
+Проверить, что оператор запустился:
+
+```sh
+kubectl get pods -n picodata-operator-system
+kubectl logs -n picodata-operator-system deploy/picodata-operator-controller-manager -f
+```
+
+### 3. Создать namespace и секрет
+
+```sh
+kubectl create namespace picodata
+
+kubectl create secret generic picodata-admin-secret \
+  --namespace picodata \
+  --from-literal=password=<пароль>
+```
+
+### 4. Применить CR
+
+Создайте `picoclusterdb.yaml` по образцу из `config/samples/` и примените:
+
+```sh
+kubectl apply -f picoclusterdb.yaml
+```
+
+Если образ Picodata находится в приватном реестре, создайте pull secret в namespace кластера:
+
+```sh
+kubectl create secret docker-registry regcred \
+  --docker-server=registry.example.com \
+  --docker-username=<user> \
+  --docker-password=<password> \
+  -n picodata
+```
+
+Укажите его в spec CR:
+
+```yaml
+spec:
+  imagePullSecrets:
+    - name: regcred
+```
+
+> Этот же secret используется для pull init-контейнера `config-init`, который запускается
+> на том же образе Picodata перед основным контейнером.
+
+### 5. Проверить состояние кластера
+
+```sh
+kubectl get picoclusterdb -n picodata
+kubectl get pods -n picodata
+```
+
+---
+
+## Security context и права на PVC
+
+Picodata внутри контейнера работает от пользователя `picodata` (UID 1000, GID 1000).
+PVC по умолчанию создаётся с правами `root:root 755` — процесс не может в него писать.
+
+Kubernetes решает это через `fsGroup` в pod security context: при монтировании тома он
+рекурсивно меняет GID всех файлов на указанный и устанавливает setgid-бит на директории.
+
+Оператор подставляет `fsGroup: 1000` автоматически, если в тире не указан `securityContext`.
+Если вы задаёте `securityContext` явно — включите `fsGroup` в него:
+
+```yaml
+tiers:
+  - name: default
+    securityContext:
+      fsGroup: 1000
+      runAsNonRoot: true
+```
+
+Без `fsGroup: 1000` поды завершатся с ошибкой:
+
+```
+Permission denied: failed to create file '/pico/00000000000000000000.snap.inprogress'
 ```
 
 ---

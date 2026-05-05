@@ -18,6 +18,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -236,8 +237,8 @@ func buildPluginListenerConfig(tier *picodatav1.TierSpec) string {
 	for _, p := range plugins {
 		out += fmt.Sprintf("    %s:\n      service:\n", p.name)
 		for _, s := range p.services {
-			out += fmt.Sprintf("        %s:\n          listener:\n            enabled: true\n            listen: \"0.0.0.0:%d\"\n",
-				s.name, s.port)
+			out += fmt.Sprintf("        %s:\n          listener:\n            enabled: true\n            listen: \"0.0.0.0:%d\"\n            advertise: \"__PLUGIN_ADVERTISE_%s_%s__\"\n",
+				s.name, s.port, strings.ToUpper(p.name), strings.ToUpper(s.name))
 		}
 	}
 	return out
