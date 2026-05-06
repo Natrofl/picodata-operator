@@ -215,6 +215,15 @@ type TierSpec struct {
 	// Use fsGroup to ensure the PVC is writable by the Picodata process (GID 1000 for official images).
 	// +optional
 	SecurityContext *corev1.PodSecurityContext `json:"securityContext,omitempty"`
+
+	// Ingress configures an optional Ingress resource for the HTTP port of this tier.
+	// +optional
+	Ingress *IngressSpec `json:"ingress,omitempty"`
+
+	// DisableAutoAntiAffinity disables the automatic per-replicaset pod anti-affinity
+	// that spreads pods across nodes. Set to true when deploying on a single node (e.g. for tests).
+	// +optional
+	DisableAutoAntiAffinity bool `json:"disableAutoAntiAffinity,omitempty"`
 }
 
 // StorageSpec defines persistent storage for a tier.
@@ -369,6 +378,40 @@ type PluginServiceSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	ListenerPort int32 `json:"listenerPort"`
+}
+
+// IngressSpec configures an optional Kubernetes Ingress for the HTTP port of a tier.
+type IngressSpec struct {
+	// Enabled controls whether the Ingress resource is created.
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+
+	// Host is the hostname the Ingress routes traffic from.
+	// +kubebuilder:validation:MinLength=1
+	Host string `json:"host"`
+
+	// IngressClassName sets the spec.ingressClassName field (e.g. "nginx", "traefik").
+	// +optional
+	IngressClassName *string `json:"ingressClassName,omitempty"`
+
+	// Annotations are added to the Ingress metadata.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// TLS configures TLS on the Ingress.
+	// +optional
+	TLS []IngressTLSSpec `json:"tls,omitempty"`
+}
+
+// IngressTLSSpec mirrors networking/v1 IngressTLS.
+type IngressTLSSpec struct {
+	// Hosts included in the TLS certificate.
+	// +optional
+	Hosts []string `json:"hosts,omitempty"`
+
+	// SecretName is the name of the secret containing the TLS certificate.
+	// +optional
+	SecretName string `json:"secretName,omitempty"`
 }
 
 // PluginStatus reflects the observed state of a plugin on a tier.

@@ -1541,6 +1541,11 @@ spec:
                       description: CanVote indicates whether instances in this tier
                         can participate in raft leader election. Immutable.
                       type: boolean
+                    disableAutoAntiAffinity:
+                      description: |-
+                        DisableAutoAntiAffinity disables the automatic per-replicaset pod anti-affinity
+                        that spreads pods across nodes. Set to true when deploying on a single node (e.g. for tests).
+                      type: boolean
                     env:
                       description: Env defines extra environment variables injected
                         into each pod.
@@ -1700,6 +1705,49 @@ spec:
                         - name
                         type: object
                       type: array
+                    ingress:
+                      description: Ingress configures an optional Ingress resource
+                        for the HTTP port of this tier.
+                      properties:
+                        annotations:
+                          additionalProperties:
+                            type: string
+                          description: Annotations are added to the Ingress metadata.
+                          type: object
+                        enabled:
+                          default: true
+                          description: Enabled controls whether the Ingress resource
+                            is created.
+                          type: boolean
+                        host:
+                          description: Host is the hostname the Ingress routes traffic
+                            from.
+                          minLength: 1
+                          type: string
+                        ingressClassName:
+                          description: IngressClassName sets the spec.ingressClassName
+                            field (e.g. "nginx", "traefik").
+                          type: string
+                        tls:
+                          description: TLS configures TLS on the Ingress.
+                          items:
+                            description: IngressTLSSpec mirrors networking/v1 IngressTLS.
+                            properties:
+                              hosts:
+                                description: Hosts included in the TLS certificate.
+                                items:
+                                  type: string
+                                type: array
+                              secretName:
+                                description: SecretName is the name of the secret
+                                  containing the TLS certificate.
+                                type: string
+                            type: object
+                          type: array
+                      required:
+                      - enabled
+                      - host
+                      type: object
                     log:
                       description: Log settings for instances in this tier.
                       properties:
@@ -2601,6 +2649,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - picodata.picodata.io
   resources:
   - picoclusterdbs
@@ -2821,7 +2881,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: docker-public.binary.picodata.io/picodata-operator:v0.1.2
+        image: docker-public.binary.picodata.io/picodata-operator:v0.2.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:

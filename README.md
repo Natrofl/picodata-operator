@@ -316,6 +316,24 @@ kubectl get pods -n picodata
 
 ---
 
+## Планирование подов (affinity)
+
+Оператор автоматически инжектирует `podAntiAffinity` для каждого StatefulSet: поды одного репликасета гарантированно оказываются на разных нодах. Это обеспечивает отказоустойчивость — при потере ноды теряется не более одной реплики из каждого репликасета.
+
+Для арбитров рекомендуется добавить `podAffinity` к нодам с `default`-тиром и `podAntiAffinity` между самими арбитрами — примеры в `picodata-operator-deploy/cluster-with-plugin.yaml`.
+
+**Деплой на одной ноде (тесты):**
+
+```yaml
+tiers:
+  - name: default
+    disableAutoAntiAffinity: true
+```
+
+Без этого флага поды в Pending — планировщик не найдёт вторую ноду для второй реплики.
+
+---
+
 ## Security context и права на PVC
 
 Picodata внутри контейнера работает от пользователя `picodata` (UID 1000, GID 1000).
@@ -360,6 +378,7 @@ make test
 
 - [ADR-001: CRD PicoclusterDB](docs/adr/2026-04-14-picoclusterdb-crd.md)
 - [ADR-002: Управление плагинами](docs/adr/2026-05-04-plugin-management.md)
+- [ADR-003: Планирование подов и anti-affinity](docs/adr/2026-05-06-pod-scheduling.md)
 
 ## License
 

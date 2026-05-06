@@ -229,13 +229,22 @@ func buildStatefulSet(
 		podSecCtx.FSGroup = ptr(int64(1000))
 	}
 
+	// Merge user affinity with auto-injected per-replicaset anti-affinity.
+	// This ensures pods of the same replicaset are spread across different nodes
+	// without over-constraining pods from different replicasets.
+	// Disabled via disableAutoAntiAffinity for single-node test deployments.
+	affinity := tier.Affinity
+	if !tier.DisableAutoAntiAffinity {
+		affinity = mergeReplicasetAntiAffinity(tier.Affinity, replicasetLabels(cluster, tier, rsIndex))
+	}
+
 	// Pod spec.
 	podSpec := corev1.PodSpec{
 		SecurityContext:               podSecCtx,
 		InitContainers:                []corev1.Container{buildConfigInitContainer(cluster, tier, image, pullPolicy)},
 		Containers:                    []corev1.Container{container},
 		ImagePullSecrets:              cluster.Spec.ImagePullSecrets,
-		Affinity:                      tier.Affinity,
+		Affinity:                      affinity,
 		Tolerations:                   tier.Tolerations,
 		NodeSelector:                  tier.NodeSelector,
 		TopologySpreadConstraints:     tier.TopologySpreadConstraints,
@@ -434,6 +443,32 @@ func buildConfigInitContainer(cluster *picodatav1.PicoclusterDB, tier *picodatav
 			},
 		},
 	}
+}
+
+// mergeReplicasetAntiAffinity returns an Affinity that includes a required
+// pod anti-affinity term preventing two pods of the same replicaset from
+// landing on the same node. Any user-supplied affinity rules are preserved.
+func mergeReplicasetAntiAffinity(base *corev1.Affinity, rsLabels map[string]string) *corev1.Affinity {
+	term := corev1.PodAffinityTerm{
+		LabelSelector: &metav1.LabelSelector{MatchLabels: rsLabels},
+		TopologyKey:   "kubernetes.io/hostname",
+	}
+
+	var affinity *corev1.Affinity
+	if base != nil {
+		copy := *base
+		affinity = &copy
+	} else {
+		affinity = &corev1.Affinity{}
+	}
+	if affinity.PodAntiAffinity == nil {
+		affinity.PodAntiAffinity = &corev1.PodAntiAffinity{}
+	}
+	affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution = append(
+		affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution,
+		term,
+	)
+	return affinity
 }
 
 func intstrFromInt32(v int32) intstr.IntOrString {
