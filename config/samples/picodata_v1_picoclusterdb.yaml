@@ -66,6 +66,10 @@ spec:
       log:
         level: info
         format: plain
+      ingress:
+        enabled: true
+        host: picodata.local
+        ingressClassName: nginx
       resources:
         requests:
           cpu: "100m"
@@ -78,10 +82,11 @@ spec:
     # 2 репликасета × RF=2 = 4 пода.
     - name: default
       replicas: 2
-      replicationFactor: 3
+      replicationFactor: 2
       canVote: false
+      # disableAutoAntiAffinity: true  # раскомментировать для деплоя на одной ноде
       storage:
-        size: 2Gi
+        size: 1Gi
       memtx:
         memory: "128M"
       vinyl:

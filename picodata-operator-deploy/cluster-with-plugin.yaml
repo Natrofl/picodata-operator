@@ -5,7 +5,7 @@ metadata:
   namespace: picodata
 spec:
   image:
-    repository: docker-public.binary.picodata.io
+    repository: git.picodata.io:5000/picodata/plugin/radix
     tag: "radix:1.0.0"
     pullPolicy: IfNotPresent
 
@@ -26,20 +26,47 @@ spec:
     # Тир-арбитр: участвует в raft-голосовании, не хранит пользовательские данные.
     # 2 репликасета, RF=1 → 2 пода.
     - name: arbiter
-      replicas: 3
+      replicas: 2
       replicationFactor: 1
       canVote: true
       securityContext:
         fsGroup: 1000
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: default-picodata-flot
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: arbiter-picodata-flot
+                topologyKey: kubernetes.io/hostname
       storage:
         size: 1Gi
       memtx:
         memory: "1G"
       pg:
-        enabled: false
+        enabled: true
       log:
         level: info
         format: plain
+      ingress:
+        enabled: true
+        host: picodata.example.com
+        ingressClassName: nginx
+        annotations:
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        tls:
+          - secretName: picodata-tls
+            hosts:
+              - picodata.example.com
       resources:
         requests:
           cpu: "1000m"
@@ -50,10 +77,11 @@ spec:
     # shareDir указывает на директорию внутри образа, где находится .so плагина.
     - name: default
       replicas: 3
-      replicationFactor: 3
+      replicationFactor: 2
+      canVote: false
+      # disableAutoAntiAffinity: true  # раскомментировать для деплоя на одной ноде
       securityContext:
         fsGroup: 1000
-      canVote: false
       shareDir: /usr/share/picodata
       plugins:
         - name: radix

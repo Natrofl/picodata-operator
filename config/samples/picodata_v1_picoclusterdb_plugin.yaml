@@ -5,7 +5,7 @@ metadata:
   namespace: picodata
 spec:
   image:
-    repository: docker-public.binary.picodata.io
+    repository: git.picodata.io:5000/picodata/plugin/radix
     tag: "radix-1.0.0:latest"
     pullPolicy: Never
 
@@ -35,6 +35,10 @@ spec:
       log:
         level: info
         format: plain
+      ingress:
+        enabled: true
+        host: picodata.local
+        ingressClassName: nginx
       resources:
         requests:
           cpu: "1000m"
@@ -47,6 +51,7 @@ spec:
       replicas: 2
       replicationFactor: 2
       canVote: false
+      disableAutoAntiAffinity: true  # раскомментировать для деплоя на одной ноде
       shareDir: /usr/share/picodata
       plugins:
         - name: radix
@@ -75,7 +80,7 @@ spec:
       storage:
         size: 2Gi
       memtx:
-        memory: "512M"
+        memory: "256M"
       pg:
         enabled: true
         ssl: false

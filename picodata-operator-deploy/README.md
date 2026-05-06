@@ -68,7 +68,7 @@ kubectl get pods -n picodata -w
 
 ```sh
 kubectl create secret docker-registry regcred \
-  --docker-server=docker-public.binary.picodata.io \
+  --docker-server=<адрес_реестра_образов> \
   --docker-username=<логин> \
   --docker-password=<пароль> \
   -n picodata-operator-system
@@ -85,7 +85,7 @@ imagePullSecrets:
 
 ```sh
 kubectl create secret docker-registry regcred \
-  --docker-server=docker-public.binary.picodata.io \
+  --docker-server=<адрес_реестра_образов> \
   --docker-username=<логин> \
   --docker-password=<пароль> \
   -n picodata

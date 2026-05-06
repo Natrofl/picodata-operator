@@ -24,6 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -51,6 +52,7 @@ type PicoclusterDBReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PicoclusterDBReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -156,6 +158,17 @@ func (r *PicoclusterDBReconciler) reconcileTier(
 		return fmt.Errorf("cleanup statefulsets: %w", err)
 	}
 
+	// Optional Ingress for the HTTP port.
+	if tier.Ingress != nil && tier.Ingress.Enabled {
+		desiredIngress := buildIngress(cluster, tier)
+		if err := controllerutil.SetControllerReference(cluster, desiredIngress, r.Scheme); err != nil {
+			return err
+		}
+		if err := r.reconcileIngress(ctx, desiredIngress); err != nil {
+			return fmt.Errorf("ingress: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -223,6 +236,22 @@ func (r *PicoclusterDBReconciler) reconcileService(ctx context.Context, desired 
 	patch := client.MergeFrom(existing.DeepCopy())
 	existing.Spec.Ports = desired.Spec.Ports
 	existing.Spec.Selector = desired.Spec.Selector
+	existing.Labels = desired.Labels
+	return r.Patch(ctx, existing, patch)
+}
+
+func (r *PicoclusterDBReconciler) reconcileIngress(ctx context.Context, desired *networkingv1.Ingress) error {
+	existing := &networkingv1.Ingress{}
+	err := r.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing)
+	if errors.IsNotFound(err) {
+		return r.Create(ctx, desired)
+	}
+	if err != nil {
+		return err
+	}
+	patch := client.MergeFrom(existing.DeepCopy())
+	existing.Spec = desired.Spec
+	existing.Annotations = desired.Annotations
 	existing.Labels = desired.Labels
 	return r.Patch(ctx, existing, patch)
 }
@@ -325,6 +354,7 @@ func (r *PicoclusterDBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&networkingv1.Ingress{}).
 		Named("picoclusterdb").
 		Complete(r)
 }
